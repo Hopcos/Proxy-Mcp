@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
+    },
+    "markdown_rag": {
+      "command": "E:/mcp-tools/mcp-markdown-rag/mcp-markdown-rag.exe",
+      "args": []
+    }
+  }
+}

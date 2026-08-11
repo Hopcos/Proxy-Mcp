@@ -1,0 +1,15 @@
+# Build output
+bin/
+obj/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# Downloaded model artifacts (created by upstream MCP servers at runtime)
+.models/
+
+# Logs
+*.log

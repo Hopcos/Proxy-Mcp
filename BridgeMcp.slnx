@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BridgeMcp.Proxy/BridgeMcp.Proxy.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BridgeMcp.Proxy.Tests/BridgeMcp.Proxy.Tests.csproj" />
+  </Folder>
+</Solution>
