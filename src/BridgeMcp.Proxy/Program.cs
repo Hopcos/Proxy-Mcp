@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using BridgeMcp.Configuration;
 using BridgeMcp.Http;
 using BridgeMcp.Sessions;
+using Microsoft.Extensions.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,7 +14,7 @@ builder.Logging.AddSimpleConsole(o =>
 });
 
 builder.Services
-    .AddSingleton<BridgeOptions>(_ => BindOptions())
+    .AddSingleton<BridgeOptions>(_ => BindOptions(args))
     .AddSingleton<ServerRegistry>()
     .AddSingleton<SessionStore>()
     .AddSingleton<McpEndpointHandler>();
@@ -84,12 +85,46 @@ app.Lifetime.ApplicationStopping.Register(() =>
     reg.DisposeAsync().AsTask().GetAwaiter().GetResult();
 });
 
-// Listen on the configured URL. A URL set via ASPNETCORE_URLS / --urls takes
-// precedence because we only add ours when none are already configured.
-if (app.Urls.Count == 0 && !string.IsNullOrWhiteSpace(opts.Url))
+// Listen on the configured URL.
+//
+// Precedence:
+//   1. An explicit --urls on the *command line* wins (Kestrel's canonical switch).
+//   2. Otherwise opts.Url applies — from --Bridge:Url, BRIDGEMCP_Url, or the
+//      config file. This must win over launchSettings.json / ASPNETCORE_URLS,
+//      which would otherwise silently pin the port to a dev default.
+//   3. In-memory env var ASPNETCORE_URLS and launchSettings.applicationUrl are
+//      only a fallback when neither of the above is present.
+var explicitUrlsFromCli = GetCommandLineValue(args, "urls");
+if (explicitUrlsFromCli is not null)
+{
+    // Kestrel already consumed the CLI switch; app.Urls is populated.
+}
+else if (!string.IsNullOrWhiteSpace(opts.Url))
+{
+    app.Urls.Clear();
     app.Urls.Add(opts.Url);
+}
 
 app.Run();
+
+/// <summary>
+/// Returns the value for a <c>--key=value</c> style argument that takes a
+/// single value (e.g. <c>--urls</c>), or null when absent. Used to detect an
+/// explicit Kestrel URL override without double-quoting it through the config
+/// binder (which would mis-handle semicolon-separated URL lists).
+/// </summary>
+static string? GetCommandLineValue(string[] args, string key)
+{
+    var prefix = $"--{key}=";
+    foreach (var a in args)
+    {
+        if (a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return a.Substring(prefix.Length);
+        if (string.Equals(a, $"--{key}", StringComparison.OrdinalIgnoreCase))
+            return string.Empty; // --key with no value
+    }
+    return null;
+}
 
 static bool IsServerPath(PathString p) =>
     p.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries).Length >= 2;
@@ -113,7 +148,7 @@ static bool OriginAllowed(HttpContext ctx, BridgeOptions opts)
     return opts.AllowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
 }
 
-static BridgeOptions BindOptions()
+static BridgeOptions BindOptions(string[] args)
 {
     var cfg = new ConfigurationBuilder()
         .SetBasePath(AppContext.BaseDirectory)
@@ -122,6 +157,7 @@ static BridgeOptions BindOptions()
         .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}.json",
             optional: true)
         .AddEnvironmentVariables(prefix: "BRIDGEMCP_")
+        .AddCommandLine(args)
         .Build();
 
     var opts = new BridgeOptions();

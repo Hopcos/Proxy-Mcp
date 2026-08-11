@@ -213,7 +213,7 @@ curl -X POST http://localhost:8787/markdown_rag/mcp \
 
 | 字段 / Field | 说明 / Description | 默认 / Default |
 |---|---|---|
-| `Bridge:Url` | 监听地址（如 `http://localhost:8787`）。可被 `ASPNETCORE_URLS`/`--urls` 覆盖。 | `http://localhost:8787` |
+| `Bridge:Url` | 监听地址（如 `http://localhost:8787`）。可用命令行 `--Bridge:Url="..."` 覆盖。 | `http://localhost:8787` |
 | `Bridge:AuthToken` | 共享 Bearer Token；为空则不鉴权（仅建议本地使用）。 | `""` |
 | `Bridge:AllowedOrigins` | 允许的 `Origin` 头（防 DNS rebinding）；为空则全部放行。 | `[]` |
 | `Bridge:ProtocolVersion` | 向上游握手时声明、向客户端回写的协议版本。 | `2025-06-18` |
@@ -223,6 +223,18 @@ curl -X POST http://localhost:8787/markdown_rag/mcp \
 | `Bridge:Servers:{name}:WorkingDirectory` | 子进程工作目录。 | 继承 / inherited |
 | `Bridge:Servers:{name}:RequestTimeout` | 单个上游请求超时。 | `00:02:00` |
 | `Bridge:Servers:{name}:ShutdownGraceSeconds` | 关停时等待子进程退出的宽限秒数。 | `5` |
+
+**命令行覆盖 / Command-line overrides：** 所有配置项都可用 Kestrel 风格的 `--Key:SubKey=value` 覆盖，配置文件值会优先于 JSON 文件。常见用法：
+
+```bash
+# 指定监听端口（配置文件中 Bridge:Url 会被同名命令行参数覆盖）
+bridgemcp.exe --Bridge:Url="http://localhost:6511"
+
+# 传参到上游子进程 / argv for upstream child processes：
+bridgemcp.exe --Bridge:Servers:markdown_rag:Args:0="--force-reindex"
+```
+
+> 优先级 / Precedence：环境变量 `ASPNETCORE_URLS` 与 `dotnet run` 的 `launchSettings.json` 注入是**最后兜底**；`--Bridge:Url`（命令行/配置）始终优先，`--urls` 仅在显式传入命令行时获胜。因此无论是发布后的 `bridgemcp.exe` 还是开发期的 `dotnet run -- --Bridge:Url=...`，端口都会按你的指定生效。
 
 ---
 
