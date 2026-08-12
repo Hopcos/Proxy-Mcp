@@ -85,46 +85,11 @@ app.Lifetime.ApplicationStopping.Register(() =>
     reg.DisposeAsync().AsTask().GetAwaiter().GetResult();
 });
 
-// Listen on the configured URL.
-//
-// Precedence:
-//   1. An explicit --urls on the *command line* wins (Kestrel's canonical switch).
-//   2. Otherwise opts.Url applies — from --Bridge:Url, BRIDGEMCP_Url, or the
-//      config file. This must win over launchSettings.json / ASPNETCORE_URLS,
-//      which would otherwise silently pin the port to a dev default.
-//   3. In-memory env var ASPNETCORE_URLS and launchSettings.applicationUrl are
-//      only a fallback when neither of the above is present.
-var explicitUrlsFromCli = GetCommandLineValue(args, "urls");
-if (explicitUrlsFromCli is not null)
-{
-    // Kestrel already consumed the CLI switch; app.Urls is populated.
-}
-else if (!string.IsNullOrWhiteSpace(opts.Url))
-{
-    app.Urls.Clear();
-    app.Urls.Add(opts.Url);
-}
+// Listen on the configured URL. See ApplyUrls for the precedence rules and the
+// IIS in-process read-only caveat.
+Program.ApplyUrls(app.Urls, args, opts.Url);
 
 app.Run();
-
-/// <summary>
-/// Returns the value for a <c>--key=value</c> style argument that takes a
-/// single value (e.g. <c>--urls</c>), or null when absent. Used to detect an
-/// explicit Kestrel URL override without double-quoting it through the config
-/// binder (which would mis-handle semicolon-separated URL lists).
-/// </summary>
-static string? GetCommandLineValue(string[] args, string key)
-{
-    var prefix = $"--{key}=";
-    foreach (var a in args)
-    {
-        if (a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            return a.Substring(prefix.Length);
-        if (string.Equals(a, $"--{key}", StringComparison.OrdinalIgnoreCase))
-            return string.Empty; // --key with no value
-    }
-    return null;
-}
 
 static bool IsServerPath(PathString p) =>
     p.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries).Length >= 2;
@@ -182,4 +147,55 @@ static BridgeOptions BindOptions(string[] args)
 }
 
 // Exposed for test hosts that bootstrap the pipeline manually.
-public partial class Program { }
+public partial class Program
+{
+    /// <summary>
+    /// Configures the host's listen addresses.
+    /// </summary>
+    /// <remarks>
+    /// Precedence:
+    ///   1. An explicit <c>--urls</c> on the *command line* wins (Kestrel's canonical
+    ///      switch; the host already applied it to <paramref name="urls"/>).
+    ///   2. Otherwise <paramref name="configuredUrl"/> applies — from --Bridge:Url,
+    ///      BRIDGEMCP_Url, or the config file. This must win over launchSettings.json /
+    ///      ASPNETCORE_URLS, which would otherwise silently pin the port to a dev default.
+    ///   3. In-memory env var ASPNETCORE_URLS and launchSettings.applicationUrl are
+    ///      only a fallback when neither of the above is present.
+    ///
+    /// When hosted by IIS (in-process model), <paramref name="urls"/> is exposed with
+    /// a read-only addresses collection — the bindings come from IIS. Touching it
+    /// (Clear/Add) would throw NotSupportedException, and it would be ignored anyway,
+    /// so the configured URL is skipped in that case.
+    /// </remarks>
+    public static void ApplyUrls(ICollection<string> urls, string[] args, string configuredUrl)
+    {
+        var explicitUrlsFromCli = GetCommandLineValue(args, "urls");
+        if (explicitUrlsFromCli is not null)
+            return; // Kestrel already consumed the CLI switch.
+
+        if (!string.IsNullOrWhiteSpace(configuredUrl) && !urls.IsReadOnly)
+        {
+            urls.Clear();
+            urls.Add(configuredUrl);
+        }
+    }
+
+    /// <summary>
+    /// Returns the value for a <c>--key=value</c> style argument that takes a
+    /// single value (e.g. <c>--urls</c>), or null when absent. Used to detect an
+    /// explicit Kestrel URL override without double-quoting it through the config
+    /// binder (which would mis-handle semicolon-separated URL lists).
+    /// </summary>
+    public static string? GetCommandLineValue(string[] args, string key)
+    {
+        var prefix = $"--{key}=";
+        foreach (var a in args)
+        {
+            if (a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return a.Substring(prefix.Length);
+            if (string.Equals(a, $"--{key}", StringComparison.OrdinalIgnoreCase))
+                return string.Empty; // --key with no value
+        }
+        return null;
+    }
+}
