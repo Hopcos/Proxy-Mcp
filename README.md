@@ -413,6 +413,22 @@ classDiagram
 
 ---
 
+## 已知问题：Windows 命令窗口弹窗 / Known issue: Windows console pop-ups
+
+**现象 / Symptom：** 通过 HTTP 桥接调用某些 STDIO MCP 服务端时，会在桌面上弹出**多个命令提示符窗口**（`cmd.exe` / `git.exe`）。
+
+**根因 / Root cause：** BridgeMcp 用 `CreateNoWindow` 拉起上游子进程，这对第一层子进程有效；但**孙进程不受 BridgeMcp 控制**。像 `codebase-memory-mcp` 这类 C/C++ 服务端在内部调用 `CreateProcessW` 拉 `git` / `cmd.exe` 等控制台程序时，**缺少 `CREATE_NO_WINDOW` 标志**。当父进程（桥服务）没有可继承的控制台（如运行在 IIS / 服务 / 无窗口宿主下）时，Windows 会为每个孙进程**新建一个可见控制台窗口** —— 每次工具调用都可能弹窗。
+
+**避免 / Avoid & fix：** 修复应在**上游服务端**的 Windows 进程派生代码中加上 `CREATE_NO_WINDOW`。以 `codebase-memory-mcp` 为例，需要在三处 `CreateProcessW` 调用补标志：
+
+- `src/foundation/compat_fs.c` —— `cbm_popen_isolated()` 走 `cmd.exe /c` 抓取 git 输出（**弹窗主源**，`git -C ...` 都经过它）
+- `src/foundation/compat_fs.c` —— `cbm_exec_no_shell()`（cli 子命令）
+- `src/foundation/subprocess.c` —— `cbm_win_spawn()`（watcher / 索引子进程）
+
+改完重新编译上游二进制并重启桥即可。BridgeMcp 侧已确保 `UseShellExecute=false` + `CreateNoWindow=true`，无需改动。
+
+---
+
 ## 安全 / Security
 
 - 默认监听 `localhost`，不对外网暴露。
